@@ -12,30 +12,41 @@ Author:
 
 """
 
+# For import top layer module
+import sys
+from pathlib import Path
+sys.path.append(Path(__file__).absolute().parent.parent.__str__())
+
 import numpy as np
 
 from . import AUDIO_PARAM
+from dbfs_ndarray import dbfs_ndarray_int
 
 
 AUDIO_PACKET_TYPE_ID = 0x10
 """int: Packet type ID of audio packet
 """
 
+SILENT_AUDIO_PACKET_TYPE_ID = 0x11
+"""int: Packet type ID of silent audio packet
+"""
 
-def encode(audio_pcm: np.ndarray, lane_name: str, ext_bytes: bytes = b"") -> bytes:
+
+def encode(audio_pcm: np.ndarray, lane_name: str, ext_bytes: bytes = b"", silent_threshold_dbfs: float = -20.0) -> bytes:
   """Create audio packet from ``numpy.ndarray``
 
   Args:
     audio_pcm(np.ndarray): Audio PCM in ``np.ndarray``, expects int16 type
     lane_name(str): Lane name of view in mixer-client
     ext_bytes(bytes): User's custom external bytes
+    silent_threshold_dbfs(float): Under this dBFS audio_pcm passed, silent audio packet will be created
 
   Note:
     * ``lane_name`` can be 0~3 characters
     * ``ext_bytes`` can contain 0~255 bytes
 
   Return:
-    bytes: Audio packet
+    bytes: Audio packet or silent audio packet
 
   Raises:
     TypeError: If ``audio_pcm`` is not ``np.ndarray``
@@ -67,14 +78,17 @@ def encode(audio_pcm: np.ndarray, lane_name: str, ext_bytes: bytes = b"") -> byt
 
   lane_name = (lane_name + "   ")[:3]  # for fill spaces if under 3 characters
 
-  return AUDIO_PACKET_TYPE_ID.to_bytes(1, "little") + lane_name.encode() + len(ext_bytes).to_bytes(1, "little") + ext_bytes + audio_pcm.tobytes()
+  if(dbfs_ndarray_int(audio_pcm) < silent_threshold_dbfs):
+    return SILENT_AUDIO_PACKET_TYPE_ID.to_bytes(1, "little") + lane_name.encode() + len(ext_bytes).to_bytes(1, "little") + ext_bytes
+  else:
+    return AUDIO_PACKET_TYPE_ID.to_bytes(1, "little") + lane_name.encode() + len(ext_bytes).to_bytes(1, "little") + ext_bytes + audio_pcm.tobytes()
 
 
 def decode(raw_packet: bytes) -> tuple[np.ndarray, str, bytes]:
   """Unpack audio packet to ``numpy.ndarray``
 
   Args:
-    raw_packet(bytes): Audio data packet
+    raw_packet(bytes): Audio or Silent audio packet
 
   Return:
     tuple[numpy.ndarray, str, bytes]: Decoded data - Audio PCM in ``numpy.ndarray``, lane name and external bytes
@@ -97,15 +111,20 @@ def decode(raw_packet: bytes) -> tuple[np.ndarray, str, bytes]:
   lane_name = raw_packet[1 : 4].decode()
   ext_bytes_len = raw_packet[4]
   ext_bytes = raw_packet[5 : 5 + ext_bytes_len]
-  audio_pcm_raw = raw_packet[5 + ext_bytes_len :]
-  audio_pcm: np.ndarray = np.frombuffer(audio_pcm_raw, dtype=AUDIO_PARAM.DTYPE)
-  audio_pcm             = audio_pcm.reshape(-1, AUDIO_PARAM.CHANNELS)
+
+  if(raw_packet[0] == SILENT_AUDIO_PACKET_TYPE_ID):
+    audio_pcm = np.zeros(int(AUDIO_PARAM.SAMPLE_RATE * AUDIO_PARAM.FRAME_DURATION_SEC * AUDIO_PARAM.CHANNELS), dtype=AUDIO_PARAM.DTYPE)
+    audio_pcm = audio_pcm.reshape(-1, AUDIO_PARAM.CHANNELS)
+  else:
+    audio_pcm_raw = raw_packet[5 + ext_bytes_len :]
+    audio_pcm: np.ndarray = np.frombuffer(audio_pcm_raw, dtype=AUDIO_PARAM.DTYPE)
+    audio_pcm             = audio_pcm.reshape(-1, AUDIO_PARAM.CHANNELS)
 
   return (audio_pcm, lane_name, ext_bytes)
 
 
 def is_audio_packet(raw_packet):
-  """Verify the packet is audio packet
+  """Verify the packet is audio packet or silent audio packet
 
   Note: It verify only type and packet ID. Packet structure will not be verified.
 
@@ -128,7 +147,7 @@ def is_audio_packet(raw_packet):
   if(len(raw_packet) == 0):
     raise ValueError("Empty bytes passed")
 
-  if(raw_packet[0] == AUDIO_PACKET_TYPE_ID):
+  if(raw_packet[0] == AUDIO_PACKET_TYPE_ID or raw_packet[0] == SILENT_AUDIO_PACKET_TYPE_ID):
     return True
   else:
     return False

@@ -20,21 +20,26 @@ AUDIO_PACKET_TYPE_ID = 0x10
 """int: Packet type ID of audio packet
 """
 
+SILENT_AUDIO_PACKET_TYPE_ID = 0x11
+"""int: Packet type ID of silent audio packet
+"""
 
-def encode(audio_pcm: AudioSegment, lane_name: str, ext_bytes: bytes = b"") -> bytes:
+
+def encode(audio_pcm: AudioSegment, lane_name: str, ext_bytes: bytes = b"", silent_threshold_dbfs: float = -20.0) -> bytes:
   """Create audio packet from ``pydub.AudioSegment``
 
   Args:
     audio_pcm(pydub.AudioSegment): Audio PCM in ``pydub.AudioSegment``, expects int16 type
     lane_name(str): Lane name of view in mixer-client
     ext_bytes(bytes): User's custom external bytes
+    silent_threshold_dbfs(float): Under this dBFS audio_pcm passed, silent audio packet will be created
 
   Note:
     * ``lane_name`` can be 0~3 characters
     * ``ext_bytes`` can contain 0~255 bytes
 
   Return:
-    bytes: Audio packet
+    bytes: Audio packet or silent audio packet
 
   Raises:
     TypeError: If ``audio_pcm`` is not ``pydub.AudioSegment``
@@ -63,14 +68,17 @@ def encode(audio_pcm: AudioSegment, lane_name: str, ext_bytes: bytes = b"") -> b
 
   lane_name = (lane_name + "   ")[:3]  # for fill spaces if under 3 characters
 
-  return AUDIO_PACKET_TYPE_ID.to_bytes(1, "little") + lane_name.encode() + len(ext_bytes).to_bytes(1, "little") + ext_bytes + audio_pcm.raw_data
+  if(audio_pcm.dBFS < silent_threshold_dbfs):
+    return SILENT_AUDIO_PACKET_TYPE_ID.to_bytes(1, "little") + lane_name.encode() + len(ext_bytes).to_bytes(1, "little") + ext_bytes
+  else:
+    return AUDIO_PACKET_TYPE_ID.to_bytes(1, "little") + lane_name.encode() + len(ext_bytes).to_bytes(1, "little") + ext_bytes + audio_pcm.raw_data
 
 
 def decode(raw_packet: bytes) -> tuple[AudioSegment, str, bytes]:
   """Unpack audio packet to ``pydub.AudioSegment``
 
   Args:
-    raw_packet(bytes): Audio data packet
+    raw_packet(bytes): Audio or Silent audio packet
 
   Return:
     tuple[pydub.AudioSegment, str, bytes]: Decoded data - Audio PCM in ``pydub.AudioSegment``, lane name and external bytes
@@ -93,17 +101,25 @@ def decode(raw_packet: bytes) -> tuple[AudioSegment, str, bytes]:
   lane_name = raw_packet[1 : 4].decode()
   ext_bytes_len = raw_packet[4]
   ext_bytes = raw_packet[5 : 5 + ext_bytes_len]
-  audio_pcm_raw = raw_packet[5 + ext_bytes_len :]
-  audio_pcm = AudioSegment(audio_pcm_raw,
-                           sample_width=AUDIO_PARAM.ONE_SAMPLE_BYTES,
-                           frame_rate=AUDIO_PARAM.SAMPLE_RATE,
-                           channels=AUDIO_PARAM.CHANNELS)
+
+  if(raw_packet[0] == SILENT_AUDIO_PACKET_TYPE_ID):
+    audio_pcm_len = int(AUDIO_PARAM.SAMPLE_RATE * AUDIO_PARAM.FRAME_DURATION_SEC * AUDIO_PARAM.ONE_SAMPLE_BYTES * AUDIO_PARAM.CHANNELS)
+    audio_pcm = AudioSegment(bytes(audio_pcm_len),
+                             sample_width=AUDIO_PARAM.ONE_SAMPLE_BYTES,
+                             frame_rate=AUDIO_PARAM.SAMPLE_RATE,
+                             channels=AUDIO_PARAM.CHANNELS)
+  else:
+    audio_pcm_raw = raw_packet[5 + ext_bytes_len :]
+    audio_pcm = AudioSegment(audio_pcm_raw,
+                            sample_width=AUDIO_PARAM.ONE_SAMPLE_BYTES,
+                            frame_rate=AUDIO_PARAM.SAMPLE_RATE,
+                            channels=AUDIO_PARAM.CHANNELS)
 
   return (audio_pcm, lane_name, ext_bytes)
 
 
 def is_audio_packet(raw_packet):
-  """Verify the packet is audio packet
+  """Verify the packet is audio packet or silent audio packet
 
   Note: It verify only type and packet ID. Packet structure will not be verified.
 
@@ -126,7 +142,7 @@ def is_audio_packet(raw_packet):
   if(len(raw_packet) == 0):
     raise ValueError("Empty bytes passed")
 
-  if(raw_packet[0] == AUDIO_PACKET_TYPE_ID):
+  if(raw_packet[0] == AUDIO_PACKET_TYPE_ID or raw_packet[0] == SILENT_AUDIO_PACKET_TYPE_ID):
     return True
   else:
     return False

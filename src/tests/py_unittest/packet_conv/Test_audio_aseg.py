@@ -3,6 +3,8 @@
 
 Test cases:
   * Can encode/decode audio packet from/to ``AudioSegment`` with[out] custom bytes to bytes
+  * Can encode/decode silent audio packet from/to ``AudioSegment`` with[out] custom bytes to bytes
+  * Can create silent audio packet when the audio dBFS is less than threshold
   * Raise TypeError if invalid argument is passed
   * Raise ValueError if invalid argument is passed
 
@@ -37,8 +39,9 @@ class Test_packet_conv_audio_aseg(unittest.TestCase):
     raw_packet = audio_aseg.encode(audio_pcm_org, lane_name_org, ext_bytes_org)
     audio_pcm_prc, lane_name_prc, ext_bytes_prc = audio_aseg.decode(raw_packet)
 
+    self.assertEqual(raw_packet[0], audio_aseg.AUDIO_PACKET_TYPE_ID)
     self.assertTrue(audio_aseg.is_audio_packet(raw_packet))
-    self.assertTrue(audio_pcm_org == audio_pcm_prc)
+    self.assertEqual(audio_pcm_org, audio_pcm_prc)
     self.assertEqual(lane_name_org, lane_name_prc)
     self.assertEqual(ext_bytes_org, ext_bytes_prc)
 
@@ -51,8 +54,43 @@ class Test_packet_conv_audio_aseg(unittest.TestCase):
     raw_packet = audio_aseg.encode(audio_pcm_org, lane_name_org, ext_bytes_org)
     audio_pcm_prc, lane_name_prc, ext_bytes_prc = audio_aseg.decode(raw_packet)
 
+    self.assertEqual(raw_packet[0], audio_aseg.AUDIO_PACKET_TYPE_ID)
     self.assertTrue(audio_aseg.is_audio_packet(raw_packet))
-    self.assertTrue(audio_pcm_org == audio_pcm_prc)
+    self.assertEqual(audio_pcm_org, audio_pcm_prc)
+    self.assertEqual(lane_name_org, lane_name_prc)
+    self.assertEqual(ext_bytes_org, ext_bytes_prc)
+
+
+  def test_true_enc_dec_verify_silent_ext(self):
+    audio_pcm_org = part_create_random_audioseg()
+    audio_pcm_org -= 20.0 # Make audio too silent
+    lane_name_org = "ABC"
+    ext_bytes_org = bytes([1, 2, 3, 4])
+
+    raw_packet = audio_aseg.encode(audio_pcm_org, lane_name_org, ext_bytes_org)
+    audio_pcm_prc, lane_name_prc, ext_bytes_prc = audio_aseg.decode(raw_packet)
+
+    self.assertEqual(raw_packet[0], audio_aseg.SILENT_AUDIO_PACKET_TYPE_ID)
+    self.assertEqual(len(raw_packet), 9)  # Is short length packet
+    self.assertTrue(audio_aseg.is_audio_packet(raw_packet))
+    self.assertEqual(part_create_silent_audioseg(), audio_pcm_prc)
+    self.assertEqual(lane_name_org, lane_name_prc)
+    self.assertEqual(ext_bytes_org, ext_bytes_prc)
+
+
+  def test_true_enc_dec_verify_silent_noext(self):
+    audio_pcm_org = part_create_random_audioseg()
+    audio_pcm_org -= 20.0 # Make audio too silent
+    lane_name_org = "ABC"
+    ext_bytes_org = bytes()
+
+    raw_packet = audio_aseg.encode(audio_pcm_org, lane_name_org, ext_bytes_org)
+    audio_pcm_prc, lane_name_prc, ext_bytes_prc = audio_aseg.decode(raw_packet)
+
+    self.assertEqual(raw_packet[0], audio_aseg.SILENT_AUDIO_PACKET_TYPE_ID)
+    self.assertEqual(len(raw_packet), 5)  # Is short length packet
+    self.assertTrue(audio_aseg.is_audio_packet(raw_packet))
+    self.assertEqual(part_create_silent_audioseg(), audio_pcm_prc)
     self.assertEqual(lane_name_org, lane_name_prc)
     self.assertEqual(ext_bytes_org, ext_bytes_prc)
 
@@ -114,6 +152,14 @@ class Test_packet_conv_audio_aseg(unittest.TestCase):
 
 def part_create_random_audioseg() -> AudioSegment:
   raw = randbytes(int(AUDIO_PARAM.SAMPLE_RATE * AUDIO_PARAM.ONE_SAMPLE_BYTES * AUDIO_PARAM.FRAME_DURATION_SEC)) # Random bytes as random audio data
+  return AudioSegment(raw,
+                      sample_width=AUDIO_PARAM.ONE_SAMPLE_BYTES,
+                      frame_rate=AUDIO_PARAM.SAMPLE_RATE,
+                      channels=AUDIO_PARAM.CHANNELS)
+
+
+def part_create_silent_audioseg() -> AudioSegment:
+  raw = bytes(int(AUDIO_PARAM.SAMPLE_RATE * AUDIO_PARAM.ONE_SAMPLE_BYTES * AUDIO_PARAM.FRAME_DURATION_SEC))
   return AudioSegment(raw,
                       sample_width=AUDIO_PARAM.ONE_SAMPLE_BYTES,
                       frame_rate=AUDIO_PARAM.SAMPLE_RATE,

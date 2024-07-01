@@ -3,6 +3,8 @@
 
 Test cases:
   * Can encode/decode audio packet from/to ``ndarray`` with[out] custom bytes to bytes
+  * Can encode/decode silent audio packet from/to ``ndarray`` with[out] custom bytes to bytes
+  * Can create silent audio packet when the audio dBFS is less than threshold
   * Raise TypeError if invalid argument is passed
   * Raise ValueError if invalid argument is passed
 
@@ -36,6 +38,7 @@ class Test_packet_conv_audio_ndarray(unittest.TestCase):
     raw_packet = audio_ndarray.encode(audio_pcm_org, lane_name_org, ext_bytes_org)
     audio_pcm_prc, lane_name_prc, ext_bytes_prc = audio_ndarray.decode(raw_packet)
 
+    self.assertEqual(raw_packet[0], audio_ndarray.AUDIO_PACKET_TYPE_ID)
     self.assertTrue(audio_ndarray.is_audio_packet(raw_packet))
     self.assertTrue((audio_pcm_org == audio_pcm_prc).all())
     self.assertEqual(lane_name_org, lane_name_prc)
@@ -50,10 +53,45 @@ class Test_packet_conv_audio_ndarray(unittest.TestCase):
     raw_packet = audio_ndarray.encode(audio_pcm_org, lane_name_org, ext_bytes_org)
     audio_pcm_prc, lane_name_prc, ext_bytes_prc = audio_ndarray.decode(raw_packet)
 
+    self.assertEqual(raw_packet[0], audio_ndarray.AUDIO_PACKET_TYPE_ID)
     self.assertTrue(audio_ndarray.is_audio_packet(raw_packet))
     self.assertTrue((audio_pcm_org == audio_pcm_prc).all())
     self.assertEqual(lane_name_org, lane_name_prc)
     self.assertEqual(ext_bytes_org, ext_bytes_prc)
+
+
+  def test_true_enc_dec_verify_silent_ext(self):
+    audio_pcm_org = part_create_random_ndarray()
+    audio_pcm_org = audio_pcm_org * 0.1 # Apply gain -20[dB] = 10 ** (-20/20) = 0.1
+    audio_pcm_org = audio_pcm_org.astype(np.int16)
+    lane_name_org = "ABC"
+    ext_bytes_org = bytes([1, 2, 3, 4])
+
+    raw_packet = audio_ndarray.encode(audio_pcm_org, lane_name_org, ext_bytes_org)
+    audio_pcm_prc, lane_name_prc, ext_bytes_prc = audio_ndarray.decode(raw_packet)
+
+    self.assertEqual(raw_packet[0], audio_ndarray.SILENT_AUDIO_PACKET_TYPE_ID)
+    self.assertTrue(audio_ndarray.is_audio_packet(raw_packet))
+    self.assertTrue((part_create_silent_ndarray() == audio_pcm_prc).all())
+    self.assertEqual(lane_name_org, lane_name_prc)
+    self.assertEqual(ext_bytes_org, ext_bytes_prc)#
+
+
+  def test_true_enc_dec_verify_silent_noext(self):
+    audio_pcm_org = part_create_random_ndarray()
+    audio_pcm_org = audio_pcm_org * 0.1 # Apply gain -20[dB] = 10 ** (-20/20) = 0.1
+    audio_pcm_org = audio_pcm_org.astype(np.int16)
+    lane_name_org = "ABC"
+    ext_bytes_org = bytes()
+
+    raw_packet = audio_ndarray.encode(audio_pcm_org, lane_name_org, ext_bytes_org)
+    audio_pcm_prc, lane_name_prc, ext_bytes_prc = audio_ndarray.decode(raw_packet)
+
+    self.assertEqual(raw_packet[0], audio_ndarray.SILENT_AUDIO_PACKET_TYPE_ID)
+    self.assertTrue(audio_ndarray.is_audio_packet(raw_packet))
+    self.assertTrue((part_create_silent_ndarray() == audio_pcm_prc).all())
+    self.assertEqual(lane_name_org, lane_name_prc)
+    self.assertEqual(ext_bytes_org, ext_bytes_prc)#
 
 
   def test_err_enc_invalid_type(self):
@@ -111,6 +149,10 @@ def part_create_random_ndarray() -> np.ndarray:
   return np.random.randint(-(2**15), (2**15)-1,
                            size=(int(AUDIO_PARAM.SAMPLE_RATE * AUDIO_PARAM.FRAME_DURATION_SEC), AUDIO_PARAM.CHANNELS),
                            dtype=AUDIO_PARAM.DTYPE)
+
+
+def part_create_silent_ndarray() -> np.ndarray:
+  return np.zeros(int(AUDIO_PARAM.SAMPLE_RATE * AUDIO_PARAM.FRAME_DURATION_SEC * AUDIO_PARAM.CHANNELS), dtype=AUDIO_PARAM.DTYPE)
 
 
 if __name__ == "__main__":
