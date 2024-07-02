@@ -120,6 +120,13 @@ describe("err_cases", () => {
 });
 
 
+/**
+ * Generate a random `Float32Array` 4410 length
+ *
+ * It can use for test data as random audio.
+ *
+ * @returns {Float32Array} Random array
+ */
 function part_testdata_rand_float32array() {
   return Float32Array.from(new Array(4410), e => (Math.random() - 0.5) * 2);
   // - 0.5   --> Random number range is [ -0.5, 0.5)
