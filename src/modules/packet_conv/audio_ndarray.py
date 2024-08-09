@@ -21,6 +21,7 @@ import numpy as np
 
 from . import AUDIO_PARAM
 from dbfs_ndarray import dbfs_ndarray_int
+from .audio_aseg import is_audio_packet
 
 
 AUDIO_PACKET_TYPE_ID = 0x10
@@ -87,26 +88,17 @@ def encode(audio_pcm: np.ndarray, lane_name: str, ext_bytes: bytes = b"", silent
 def decode(raw_packet: bytes) -> tuple[np.ndarray, str, bytes]:
   """Unpack audio packet to ``numpy.ndarray``
 
+  Note:
+    About raises, see reference of `audio_aseg.is_audio_packet`.
+
   Args:
     raw_packet(bytes): Audio or Silent audio packet
 
   Return:
     tuple[numpy.ndarray, str, bytes]: Decoded data - Audio PCM in ``numpy.ndarray``, lane name and external bytes
 
-  Raises:
-    TypeError: If ``raw_packet`` is not ``bytes``
-    ValueError: If ``raw_packet`` is an empty bytes
-    ValueError: If ``raw_packet`` type ID bytes is not audio packet type ID
-    ValueError: If ``raw_packet`` is too short (external bytes info is missing)
-
   """
-  # Packet type verification
-  if(not is_audio_packet(raw_packet)):
-    raise ValueError("Invalid packet, it is not an audio packet")
-
-  # Arguments range checking
-  if(len(raw_packet) < 5):
-    raise ValueError("Invalid packet, too short bytes received")
+  is_audio_packet(raw_packet, True)
 
   lane_name = raw_packet[1 : 4].decode()
   ext_bytes_len = raw_packet[4]
@@ -121,30 +113,3 @@ def decode(raw_packet: bytes) -> tuple[np.ndarray, str, bytes]:
     audio_pcm             = audio_pcm.reshape(-1, AUDIO_PARAM.CHANNELS)
 
   return (audio_pcm, lane_name, ext_bytes)
-
-
-def is_audio_packet(raw_packet):
-  """Verify the packet is audio packet or silent audio packet
-
-  Note: It verify only type and packet ID. Packet structure will not be verified.
-
-  Args:
-    raw_packet(bytes): Packet to verify
-
-  Returns:
-    bool: It is an audio packet: true, otherwise: false
-
-  Raises:
-    TypeError: If ``raw_packet`` is not ``bytes``
-    ValueError: If ``raw_packet`` is an empty bytes
-
-  """
-  # Arguments type checking
-  if(type(raw_packet) != bytes):
-    raise TypeError(f"raw_packet must be bytes, but got {type(raw_packet)}")
-
-  # Packet content availability checking
-  if(len(raw_packet) == 0):
-    raise ValueError("Empty bytes passed")
-
-  return raw_packet[0] == AUDIO_PACKET_TYPE_ID or raw_packet[0] == SILENT_AUDIO_PACKET_TYPE_ID

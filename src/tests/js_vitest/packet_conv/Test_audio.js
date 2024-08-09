@@ -15,7 +15,7 @@
 import { describe, test, expect } from "vitest"
 
 import { ONE_FRAME_SAMPLES } from "../../../static/packet_conv/AUDIO_PARAM.js"
-import { packet_audio_encode, packet_audio_decode, is_audio_packet, AUDIO_PACKET_TYPE_ID } from "../../../static/packet_conv/audio.js"
+import { packet_audio_encode, packet_audio_decode, is_audio_packet } from "../../../static/packet_conv/audio.js"
 import { generate_rand_float32array } from "../util/rand_f32a.js"
 import { is_almost_equal_float32array } from "../util/almost_eq_f32a.js"
 
@@ -86,13 +86,35 @@ describe("true_cases", () => {
     const audio_pcm_org = generate_rand_float32array(ONE_FRAME_SAMPLES);
     const lane_name_org = "ABC";
     const ext_bytes_org = new Uint8Array();
-    const raw_packet = packet_audio_encode(audio_pcm_org, lane_name_org, ext_bytes_org);
+    const raw_packet_correct = packet_audio_encode(audio_pcm_org, lane_name_org, ext_bytes_org);
+    const audio_pcm_silent_org = new Float32Array(ONE_FRAME_SAMPLES);
+    const raw_packet_silent_correct = packet_audio_encode(audio_pcm_silent_org, lane_name_org, ext_bytes_org);
 
-    const raw_packet_invalid_id = Uint8Array.of(0x20, raw_packet.slice(1));
-    //                                          ~~~~
-    //                                          as non 0x10 or 0x11 byte
+    const raw_packet_invalid_empty                  = new Uint8Array();
+    const raw_packet_invalid_id                     = Uint8Array.of(0x20, ...raw_packet_correct.slice(1)); // 0x20 as non 0x10 or 0x11 byte
+    const raw_packet_invalid_no_extlen              = raw_packet_correct.slice(0, 4);
+    const raw_packet_invalid_audio_too_short        = raw_packet_correct.slice(0, -1);
+    const raw_packet_invalid_audio_too_long         = Uint8Array.of(...raw_packet_correct, 0);  // 0 as an over length byte
+    const raw_packet_invalid_silent_audio_too_short = raw_packet_silent_correct.slice(0, -1);
+    const raw_packet_invalid_silent_audio_too_long  = Uint8Array.of(...raw_packet_silent_correct, 0); // 0 as an over length byte
 
-    expect(is_audio_packet(raw_packet_invalid_id)).toBe(false);
+    expect(is_audio_packet("")                                       ).toBe(false); // string "" as non Uint8Array
+    expect(is_audio_packet(raw_packet_invalid_empty)                 ).toBe(false);
+    expect(is_audio_packet(raw_packet_invalid_id)                    ).toBe(false);
+    expect(is_audio_packet(raw_packet_invalid_no_extlen)             ).toBe(false);
+    expect(is_audio_packet(raw_packet_invalid_audio_too_short)       ).toBe(false);
+    expect(is_audio_packet(raw_packet_invalid_audio_too_long)        ).toBe(false);
+    expect(is_audio_packet(raw_packet_invalid_silent_audio_too_short)).toBe(false);
+    expect(is_audio_packet(raw_packet_invalid_silent_audio_too_long) ).toBe(false);
+
+    expect(() => is_audio_packet(""                                       , true)).toThrowError(new TypeError ("raw_packet must be Uint8Array")); // string "" as non Uint8Array
+    expect(() => is_audio_packet(raw_packet_invalid_empty                 , true)).toThrowError(new RangeError("Empty array passed"));
+    expect(() => is_audio_packet(raw_packet_invalid_id                    , true)).toThrowError(new RangeError("It is not an audio packet or silent audio packet"));
+    expect(() => is_audio_packet(raw_packet_invalid_no_extlen             , true)).toThrowError(new RangeError("Too short bytes received, external bytes length missing"));
+    expect(() => is_audio_packet(raw_packet_invalid_audio_too_short       , true)).toThrowError(new RangeError("Too short bytes as audio packet"));
+    expect(() => is_audio_packet(raw_packet_invalid_audio_too_long        , true)).toThrowError(new RangeError("Too long bytes as audio packet"));
+    expect(() => is_audio_packet(raw_packet_invalid_silent_audio_too_short, true)).toThrowError(new RangeError("Too short bytes received, external bytes length missing"));
+    expect(() => is_audio_packet(raw_packet_invalid_silent_audio_too_long , true)).toThrowError(new RangeError("Too long bytes as silent audio packet"));
   });
 });
 
@@ -128,36 +150,18 @@ describe("err_cases", () => {
 
 
   // test("dec_invalid_type", () => {
-  //   // type checking will be tested in verify_invalid_type
+  //   // packet verification integrated to `is_audio_packet` tests
   // });
 
+  // test("dec_invalid_value", () => {
+  //   // packet verification integrated to `is_audio_packet` tests
+  // });
 
-  test("dec_invalid_value", () => {
-    const audio_pcm_org = generate_rand_float32array(ONE_FRAME_SAMPLES);
-    const lane_name_org = "ABC";
-    const ext_bytes_org = new Uint8Array();
-    const raw_packet = packet_audio_encode(audio_pcm_org, lane_name_org, ext_bytes_org);
+  // test("verify_invalid_type", () => {
+  //   // no error cases of `is_audio_packet`
+  // });
 
-    const raw_packet_invalid_id = Uint8Array.of(0x20, raw_packet.slice(1));
-    //                                          ~~~~
-    //                                          as non 0x10 or 0x11 byte
-    const raw_packet_invalid_len = Uint8Array.of(AUDIO_PACKET_TYPE_ID, 0x41, 0x42, 0x43);
-    // invalid len - means ext_bytes data missing packet
-
-    expect(() => packet_audio_decode(raw_packet_invalid_id )).toThrowError(new RangeError("Invalid packet, it is not an audio packet"));
-    expect(() => packet_audio_decode(raw_packet_invalid_len)).toThrowError(new RangeError("Invalid packet, too short bytes received"));
-  });
-
-
-  test("verify_invalid_type", () => {
-    expect(() => packet_audio_decode("")).toThrowError(new TypeError("raw_packet must be Uint8Array"));
-    //                           ~~ as non Uint8Array
-  });
-
-
-  test("verify_invalid_value", () => {
-    const raw_packet_invalid_empty = new Uint8Array();
-
-    expect(() => is_audio_packet(raw_packet_invalid_empty)).toThrowError(new RangeError("Empty array passed"));
-  });
+  // test("verify_invalid_value", () => {
+  //   // no error cases of `is_audio_packet`
+  // });
 });

@@ -77,22 +77,17 @@ def encode(audio_pcm: AudioSegment, lane_name: str, ext_bytes: bytes = b"", sile
 def decode(raw_packet: bytes) -> tuple[AudioSegment, str, bytes]:
   """Unpack audio packet to ``pydub.AudioSegment``
 
+  Note:
+    About raises, see reference of `is_audio_packet`.
+
   Args:
     raw_packet(bytes): Audio or Silent audio packet
 
   Return:
     tuple[pydub.AudioSegment, str, bytes]: Decoded data - Audio PCM in ``pydub.AudioSegment``, lane name and external bytes
 
-  Raises:
-    TypeError: If ``raw_packet`` is not ``bytes``
-    ValueError: If ``raw_packet`` is an empty bytes
-    ValueError: If ``raw_packet`` type ID bytes is not audio packet type ID
-    ValueError: If ``raw_packet`` is too short (external bytes info is missing)
-
   """
-  # Packet type verification
-  if(not is_audio_packet(raw_packet)):
-    raise ValueError("Invalid packet, it is not an audio packet")
+  is_audio_packet(raw_packet, True)
 
   # Arguments range checking
   if(len(raw_packet) < 5):
@@ -118,28 +113,71 @@ def decode(raw_packet: bytes) -> tuple[AudioSegment, str, bytes]:
   return (audio_pcm, lane_name, ext_bytes)
 
 
-def is_audio_packet(raw_packet):
+def is_audio_packet(raw_packet: bytes, raise_on_invalid: bool = False):
   """Verify the packet is audio packet or silent audio packet
-
-  Note: It verify only type and packet ID. Packet structure will not be verified.
 
   Args:
     raw_packet(bytes): Packet to verify
+    raise_on_invalid(bool): Toggle behavior if packet is invalid, true: raise exception, false: return false
 
   Returns:
-    bool: It is an audio packet: true, otherwise: false
+    bool: It is an audio packet: true, otherwise: false (if throw_on_invalid === true, error will be thrown)
 
   Raises:
     TypeError: If ``raw_packet`` is not ``bytes``
     ValueError: If ``raw_packet`` is an empty bytes
+    ValueError: If `raw_packet` is not an audio packet or silent audio packet
+    ValueError: If `raw_packet` is too short bytes as audio packet
+    ValueError: If `raw_packet` is too long bytes as audio packet
+    ValueError: If `raw_packet` is too long bytes as silent audio packet
 
   """
   # Arguments type checking
   if(type(raw_packet) != bytes):
+    if not raise_on_invalid:
+      return False
     raise TypeError(f"raw_packet must be bytes, but got {type(raw_packet)}")
 
   # Packet content availability checking
   if(len(raw_packet) == 0):
+    if not raise_on_invalid:
+      return False
     raise ValueError("Empty bytes passed")
 
-  return raw_packet[0] == AUDIO_PACKET_TYPE_ID or raw_packet[0] == SILENT_AUDIO_PACKET_TYPE_ID
+  # Packet type ID checking
+  if(raw_packet[0] != AUDIO_PACKET_TYPE_ID and raw_packet[0] != SILENT_AUDIO_PACKET_TYPE_ID):
+    if not raise_on_invalid:
+      return False
+    raise ValueError("It is not an audio packet or silent audio packet")
+
+  # Packet length checking
+  if(len(raw_packet) < 5):
+    if not raise_on_invalid:
+      return False
+    raise ValueError("Too short bytes received, external bytes length missing")
+
+  # Packet length checking (for [non]silent pattern)
+  if  (raw_packet[0] == AUDIO_PACKET_TYPE_ID):
+    EXPECTED_LENGTH = 5 + raw_packet[4] + AUDIO_PARAM.ONE_FRAME_SAMPLES * AUDIO_PARAM.ONE_SAMPLE_BYTES
+    if  (len(raw_packet) < EXPECTED_LENGTH):
+      if not raise_on_invalid:
+        return False
+      raise ValueError("Too short bytes as audio packet")
+    elif(len(raw_packet) > EXPECTED_LENGTH):
+      if not raise_on_invalid:
+        return False
+      raise ValueError("Too long bytes as audio packet")
+  elif(raw_packet[0] == SILENT_AUDIO_PACKET_TYPE_ID):
+    EXPECTED_LENGTH = 5 + raw_packet[4]
+    # # Error of ValueError("Too short bytes as audio packet") will be matched as
+    # #          ValueError("Too short bytes received, external bytes length missing")
+    # if  (len(raw_packet) < EXPECTED_LENGTH):
+    #   if not raise_on_invalid:
+    #     return False
+    #   raise ValueError("Too short bytes as audio packet")
+    if  (len(raw_packet) > EXPECTED_LENGTH):
+      if not raise_on_invalid:
+        return False
+      raise ValueError("Too long bytes as silent audio packet")
+
+  return True

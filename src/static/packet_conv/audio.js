@@ -8,7 +8,7 @@
  * @author aKuad
  */
 
-import { ONE_FRAME_SAMPLES } from "./AUDIO_PARAM.js";
+import { ONE_FRAME_SAMPLES, ONE_FRAME_SAMPLES, ONE_SAMPLE_BYTES } from "./AUDIO_PARAM.js";
 import { dbfs_float } from "../dbfs.js"
 
 
@@ -80,24 +80,13 @@ export function packet_audio_encode(audio_pcm, lane_name, ext_bytes = new Uint8A
 /**
  * Unpack audio packet
  *
+ * Note: About raises, see reference of `is_audio_packet`.
+ *
  * @param {Uint8Array} raw_packet Encoded packet
  * @returns {Array<Float32Array | string | Uint8Array>} Decoded data - Audio PCM, lane name and external data
- *
- * @throws {TypeError} If `raw_packet` is not `Uint8Array`
- * @throws {RangeError} If `raw_packet` is an empty array
- * @throws {RangeError} If `raw_packet` type ID bytes is not audio packet type ID
- * @throws {RangeError} If `raw_packet` is too short (external bytes info is missing)
  */
 export function packet_audio_decode(raw_packet) {
-  // Packet type verification
-  if(!is_audio_packet(raw_packet)) {
-    throw new RangeError("Invalid packet, it is not an audio packet");
-  }
-
-  // Arguments range checking
-  if(raw_packet.length < 5) {
-    throw new RangeError("Invalid packet, too short bytes received");
-  }
+  is_audio_packet(raw_packet, true);
 
   const lane_name_uint8t = raw_packet.slice(1, 4);
   const text_decoder = new TextDecoder();
@@ -121,24 +110,65 @@ export function packet_audio_decode(raw_packet) {
 /**
  * Verify the packet is audio packet
  *
- * Note: It verify only type and packet ID. Packet structure will not be verified.
- *
  * @param {Uint8Array} raw_packet Packet to verify
- * @returns {boolean} It is an audio packet: true, otherwise: false
+ * @param {boolean} throw_on_invalid Toggle behavior if packet is invalid, true: raise exception, false: return false
+ * @returns {boolean} It is an audio packet: true, otherwise: false (if throw_on_invalid === true, error will be thrown)
  *
  * @throws {TypeError} If `raw_packet` is not `Uint8Array`
  * @throws {RangeError} If `raw_packet` is an empty array
+ * @throws {RangeError} If `raw_packet` is not an audio packet or silent audio packet
+ * @throws {RangeError} If `raw_packet` is too short bytes as audio packet
+ * @throws {RangeError} If `raw_packet` is too long bytes as audio packet
+ * @throws {RangeError} If `raw_packet` is too long bytes as silent audio packet
  */
-export function is_audio_packet(raw_packet) {
-  // Arguments type checking
-  if(!(raw_packet instanceof Uint8Array)) {
-    throw new TypeError("raw_packet must be Uint8Array");
+export function is_audio_packet(raw_packet, throw_on_invalid = false) {
+  try {
+    // Arguments type checking
+    if(!(raw_packet instanceof Uint8Array)) {
+      throw new TypeError("raw_packet must be Uint8Array");
+    }
+
+    // Packet content availability checking
+    if(raw_packet.length === 0) {
+      throw new RangeError("Empty array passed");
+    }
+
+    // Packet type ID checking
+    if(raw_packet[0] !== AUDIO_PACKET_TYPE_ID && raw_packet[0] !== SILENT_AUDIO_PACKET_TYPE_ID) {
+      throw new RangeError("It is not an audio packet or silent audio packet");
+    }
+
+    // Packet length checking
+    if(raw_packet.length < 5) {
+      throw new RangeError("Too short bytes received, external bytes length missing");
+    }
+
+    // Packet length checking (for [non]silent pattern)
+    if(raw_packet[0] === AUDIO_PACKET_TYPE_ID) {
+      const EXPECTED_LENGTH = 5 + raw_packet[4] + ONE_FRAME_SAMPLES * ONE_SAMPLE_BYTES;
+      if       (raw_packet.length < EXPECTED_LENGTH) {
+        throw new RangeError("Too short bytes as audio packet");
+      } else if(raw_packet.length > EXPECTED_LENGTH) {
+        throw new RangeError("Too long bytes as audio packet");
+      }
+    } else if(raw_packet[0] === SILENT_AUDIO_PACKET_TYPE_ID) {
+      const EXPECTED_LENGTH = 5 + raw_packet[4];
+      // // Error of RangeError("Too short bytes as silent audio packet") will be matched as
+      // //          RangeError("Too short bytes received, external bytes length missing")
+      // if        (raw_packet.length < EXPECTED_LENGTH) {
+      //   throw new RangeError("Too short bytes as silent audio packet");
+      // }
+      if (raw_packet.length > EXPECTED_LENGTH) {
+        throw new RangeError("Too long bytes as silent audio packet");
+      }
+    }
+  } catch(e) {
+    if(throw_on_invalid) {
+      throw e;
+    } else {
+      return false;
+    }
   }
 
-  // Packet content availability checking
-  if(raw_packet.length === 0) {
-    throw new RangeError("Empty array passed");
-  }
-
-  return raw_packet[0] === AUDIO_PACKET_TYPE_ID || raw_packet[0] === SILENT_AUDIO_PACKET_TYPE_ID;
+  return true;
 }
